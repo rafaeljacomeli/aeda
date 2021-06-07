@@ -34,14 +34,14 @@ class AEDA():
     Dendrogram
     '''
 
-    def __init__(self, data: pd.DataFrame, main_date: str, main_value: str, report_name: str = "AEDA", 
+    def __init__(self, data: pd.DataFrame, main_date: str, target: list, report_name: str = "AEDA", 
         report_title: str = 'Automatic Exploratory Data Analysis') -> None:
         """Constructor method.
 
         Args:
             data (pd.DataFrame): DataFrame that contains the data to analyze.
             main_date (str): Column name for the main Date column. `MAY ALTER TO LIST(STR) IN THE FUTURE`
-            main_value (str): Column name for the main Numerical column (Target). `MAY ALTER TO LIST(STR) IN THE FUTURE`
+            target (list): List of column names for the target column.
             report_name (str, optional): Report name. Defaults to "AEDA".
             report_title (str, optional): Report title. Defaults to 'Automatic Exploratory Data Analysis'.
         """
@@ -50,7 +50,7 @@ class AEDA():
         self.data_original = data.copy()
         self.data_date = ''
         self.main_date = main_date
-        self.main_value = main_value
+        self.target = target
 
         self.colors = ['c', 'm', 'k', 'r', 'g', 'm', 'lightgreen', 'lightblue']
         self.week_day_name = {0:'Sun', 1:'Mon', 2:'Tue', 3:'Wed',
@@ -120,15 +120,18 @@ class AEDA():
         agg_value = '__count__'
         self._temporal_analysis_calculate(function_title, agg_function, agg_value)
 
-        function_title = 'Sum %s' % (str(self.main_value))
-        agg_function = 'sum'
-        agg_value = self.main_value
-        self._temporal_analysis_calculate(function_title, agg_function, agg_value)
+        self._doc.add_subsection('Individual Target Analysis')
+        for target in self.target:
+            self._doc.add_subsubsection(target)
+            function_title = 'Sum %s' % (str(target))
+            agg_function = 'sum'
+            agg_value = target
+            self._temporal_analysis_calculate(function_title, agg_function, agg_value, issub=False)
 
-        function_title = 'Avg %s' % (str(self.main_value))
-        agg_function = 'mean'
-        agg_value = self.main_value
-        self._temporal_analysis_calculate(function_title, agg_function, agg_value)
+            function_title = 'Avg %s' % (str(target))
+            agg_function = 'mean'
+            agg_value = target
+            self._temporal_analysis_calculate(function_title, agg_function, agg_value, issub=False)
 
         self.data = self.data_original.copy()
 
@@ -142,22 +145,19 @@ class AEDA():
 
         self._data_analysis_values()
 
-        self._data_analysis_shap()
-
-        self._data_analysis_lime()
-
-        #self._data_analysis_interpret()
-
-    def _data_analysis_shap(self) -> None:
+    def _data_analysis_shap(self, target: str) -> None:
         """Method that applies the Shapley value analysis.
+
+        Args:
+            target (str): Column that will be analysed.
         """
 
         numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
 
         newdf = self.data.select_dtypes(include=numerics)
 
-        Y = newdf[self.main_value]
-        x = newdf[[column for column in newdf.columns if column != self.main_value]]
+        Y = newdf[target]
+        x = newdf[[column for column in newdf.columns if column != target]]
 
         x_train, x_test, Y_train, Y_test = train_test_split(x, Y, test_size = 0.2)
 
@@ -173,20 +173,23 @@ class AEDA():
         shap.summary_plot(shap_values, x_train, show=False)
         plt.tight_layout()
         image_name = 'figure_' + str(datetime.now()).replace('.', '_').replace(':', '_') + '.png'
-        image_description = 'Shapley Additive Explanations.'
+        image_description = 'Shapley Additive Explanations for %s.' % (target)
         plt.savefig('./plots/' + image_name, dpi=400)
         self._doc.add_figure(image_name, image_description)
 
-    def _data_analysis_lime(self) -> None:
+    def _data_analysis_lime(self, target: str) -> None:
         """Method that applies the Lime analysis.
+
+        Args:
+            target (str): Column that will be analysed.
         """
 
         numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
 
         newdf = self.data.select_dtypes(include=numerics)
-
-        Y = newdf[self.main_value]
-        x = newdf[[column for column in newdf.columns if column != self.main_value]]
+        
+        Y = newdf[target]
+        x = newdf[[column for column in newdf.columns if column != target]]
         x_featurenames = x.columns
 
         x_train, x_test, Y_train, Y_test = train_test_split(x, Y, test_size = 0.2)
@@ -206,16 +209,19 @@ class AEDA():
         exp = explainer.explain_instance(x_test.iloc[0], model.predict)
         exp.as_pyplot_figure()
 
-    def _data_analysis_interpret(self) -> None:
+    def _data_analysis_interpret(self, target: str) -> None:
         """Method that applies the Interpret analysis.
+
+        Args:
+            target (str): Column that will be analysed.
         """
 
         numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
 
         newdf = self.data.select_dtypes(include=numerics)
-
-        Y = newdf[self.main_value]
-        x = newdf[[column for column in newdf.columns if column != self.main_value]]
+        
+        Y = newdf[target]
+        x = newdf[[column for column in newdf.columns if column != target]]
 
         x_train, x_test, Y_train, Y_test = train_test_split(x, Y, test_size = 0.2)
 
@@ -233,7 +239,7 @@ class AEDA():
         self._doc.add_subsection('Correlations')
 
         # Compute the correlation matrix
-        corr = self.data.corr()
+        corr = self.data.corr().iloc[:, ::-1]
         # Generate a mask for the upper triangle
         mask = np.triu(np.ones_like(corr, dtype=np.bool))
         # Set up the matplotlib figure
@@ -253,27 +259,39 @@ class AEDA():
         """Method that applies a generical value analysis.
         """
 
-        self._doc.add_subsection('Individual Value Analysis')
+        self._doc.add_subsection('Individual Target Analysis')
 
-        self._doc.add_subsubsection(self.main_value)
+        for target in self.target:
+            self._doc.add_subsubsection(target)
 
-        image_name = 'figure_' + str(datetime.now()).replace('.', '_').replace(':', '_') + '.png'
-        image_description = 'Frequency of %s.' % (self.main_value)
-        image_data = [self.data[self.main_value]]
-        image_labels = []
-        self._plot_figures([], image_data, self.main_date, 'Frequency', image_name, image_labels, how='hist')
-        self._doc.add_figure(image_name, image_description)
+            #Histogram
+            image_name = 'figure_' + str(datetime.now()).replace('.', '_').replace(':', '_') + '.png'
+            image_description = 'Frequency of %s.' % (target)
+            image_data = [self.data[target]]
+            image_labels = []
+            self._plot_figures([], image_data, self.main_date, 'Frequency', image_name, image_labels, how='hist')
+            self._doc.add_figure(image_name, image_description)
 
-        df_num_corr = pd.DataFrame(self.data.corr()[self.main_value]).drop(self.main_value)
-        df_num_corr['abs'] = df_num_corr.iloc[:, 0].abs()
-        df_num_corr = df_num_corr.sort_values(by=['abs'], ascending=False).head().iloc[:, 0]
-        golden_features = pd.DataFrame(df_num_corr)
-        golden_features.insert(0, '', golden_features.index)
-        golden_features = golden_features.reset_index(drop=True)
-        golden_features.columns = ['Columns', 'Correlation']
-        table_name = 'Table%s' % (self.main_value)
-        table_description = 'Golden features for %s.' % (self.main_value)
-        self._doc.add_table(golden_features, table_name, table_description)
+            #Golden Features
+            df_num_corr = pd.DataFrame(self.data.corr()[target]).drop(target)
+            df_num_corr['abs'] = df_num_corr.iloc[:, 0].abs()
+            df_num_corr = df_num_corr.sort_values(by=['abs'], ascending=False).head().iloc[:, 0]
+            golden_features = pd.DataFrame(df_num_corr)
+            golden_features.insert(0, '', golden_features.index)
+            golden_features = golden_features.reset_index(drop=True)
+            golden_features.columns = ['Columns', 'Correlation']
+            table_name = 'Table%s' % (target)
+            table_description = 'Golden features for %s.' % (target)
+            self._doc.add_table(golden_features, table_name, table_description)
+
+            #Shapley Value
+            self._data_analysis_shap(target)
+
+            #Lime
+            self._data_analysis_lime(target)
+
+            #Interpret
+            self._data_analysis_interpret(target)
 
     def _format_date(self) -> None:
         """Method that format the `main_date` field.
@@ -347,7 +365,7 @@ class AEDA():
         table_description = 'Describe the columns.'
         self._doc.add_table_index(self.data.describe().round(15), table_name, table_description)
 
-    def _temporal_analysis_calculate(self, function_title: str, agg_function: str, agg_value: str):
+    def _temporal_analysis_calculate(self, function_title: str, agg_function: str, agg_value: str, issub: bool = True):
         """Method that applies Aggregation functions to generate charts about the data distribution over the `main_date`.
 
         Args:
@@ -356,7 +374,7 @@ class AEDA():
             agg_value (str): Column name for the main Numerical column (Target). `MAY ALTER TO LIST(STR) IN THE FUTURE`
         """
 
-        self._doc.add_subsection(function_title)
+        self._doc.add_subsection(function_title) if issub else None
 
         if(self.data['year'].nunique() > 1):
             period = self.main_date
